@@ -127,6 +127,17 @@ export function modelsFromCatalog(catalog: CatalogModel[]): ProviderModelConfig[
       .filter((n): n is number => typeof n === "number" && n > 0);
     const contextWindow = contexts.length > 0 ? Math.min(...contexts) : FALLBACK_CONTEXT_WINDOW;
     const maxTokens = outputs.length > 0 ? Math.min(...outputs) : FALLBACK_MAX_TOKENS;
+    // Cost comes straight from the catalog's price rows. Models bundled with
+    // the plan have none, so they stay at zero. Pi has no field for cache
+    // writes and the catalog publishes no rate for them; zero keeps the
+    // estimate honest instead of inventing a multiplier.
+    const priced = bucket.variants.find((variant) => variant.price);
+    const cost: ProviderModelConfig["cost"] = {
+      input: priced?.price?.input ?? 0,
+      output: priced?.price?.output ?? 0,
+      cacheRead: priced?.price?.cachedInput ?? 0,
+      cacheWrite: 0,
+    };
     const supportsImages = bucket.variants.some((variant) => variant.supportsImages);
 
     models.push({
@@ -135,7 +146,7 @@ export function modelsFromCatalog(catalog: CatalogModel[]): ProviderModelConfig[
       reasoning,
       thinkingLevelMap: reasoning ? thinkingLevelMap : undefined,
       input: supportsImages ? ["text", "image"] : ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost,
       contextWindow,
       maxTokens,
     });

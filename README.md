@@ -32,7 +32,7 @@ After that, `/model` lists the models your account can use, and `/thinking` or S
 
 Login calls `RegisterUser` on `register.windsurf.com` and stores the API key in `~/.pi/agent/auth.json`. The model list comes from `GetCliModelConfigs` and is cached at `~/.pi/agent/cache/devin-oauth-catalog.json`. Chat streams from `GetChatMessage`.
 
-Model IDs are never hardcoded. `/model` shows what your account can run, one entry per family, and the thinking level picks the matching variant.
+Model IDs, context windows and token prices all come from the catalog. `/model` shows what your account can run, one entry per family, and the thinking level picks the matching variant.
 
 Do not install this alongside `pi-devin`, `pi-devin-local` or `pi-devin-auth`; all of them register the same `devin` provider.
 

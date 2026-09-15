@@ -5,6 +5,13 @@ import { getCachedUserJwt } from "./mint-user-jwt.js";
 
 export const DEFAULT_DEVIN_HOST = "https://server.codeium.com";
 
+/** USD per million tokens, as the catalog publishes them. */
+export interface CatalogPrice {
+  input: number;
+  cachedInput: number;
+  output: number;
+}
+
 export interface CatalogModel {
   modelUid: string;
   label: string;
@@ -13,6 +20,26 @@ export interface CatalogModel {
   supportsThinking?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
+  price?: CatalogPrice;
+}
+
+/** Prices arrive as float32, so 1.2 reads back as 1.2000000476837158. */
+function roundPrice(value: number): number {
+  return Number.isFinite(value) ? Math.round(value * 1e6) / 1e6 : 0;
+}
+
+/** One row of the catalog's price table: a label and a USD-per-1M-tokens rate. */
+function parsePriceRow(buf: Buffer): { label: string; price?: number } {
+  let label = "";
+  let price: number | undefined;
+  for (const field of iterFields(buf)) {
+    if (field.num === 1 && field.wire === 2 && Buffer.isBuffer(field.value)) {
+      label = field.value.toString("utf8");
+    } else if (field.num === 2 && field.wire === 5 && Buffer.isBuffer(field.value) && field.value.length === 4) {
+      price = roundPrice(field.value.readFloatLE(0));
+    }
+  }
+  return { label, price };
 }
 
 function parseModelFeatures(buf: Buffer): { supportsImages?: boolean; supportsThinking?: boolean } {
@@ -62,6 +89,9 @@ function parseClientModelConfig(buf: Buffer): CatalogModel | null {
   let supportsThinking: boolean | undefined;
   let contextWindow: number | undefined;
   let maxOutputTokens: number | undefined;
+  let input: number | undefined;
+  let cachedInput: number | undefined;
+  let output: number | undefined;
 
   for (const field of iterFields(buf)) {
     if (field.num === 1 && field.wire === 2 && Buffer.isBuffer(field.value)) {
@@ -81,10 +111,22 @@ function parseClientModelConfig(buf: Buffer): CatalogModel | null {
       supportsThinking = info.supportsThinking;
       if (info.contextWindow !== undefined) contextWindow = info.contextWindow;
       maxOutputTokens = info.maxOutputTokens;
+    } else if (field.num === 32 && field.wire === 2 && Buffer.isBuffer(field.value)) {
+      const row = parsePriceRow(field.value);
+      if (row.price === undefined) continue;
+      if (row.label === "Input") input = row.price;
+      else if (row.label === "Cached input") cachedInput = row.price;
+      else if (row.label === "Output") output = row.price;
     }
   }
 
   if (!modelUid) return null;
+  // Models bundled with the plan carry no price rows at all, which is not the
+  // same as a zero rate; leave them unpriced so callers can tell the difference.
+  const price =
+    input !== undefined || cachedInput !== undefined || output !== undefined
+      ? { input: input ?? 0, cachedInput: cachedInput ?? 0, output: output ?? 0 }
+      : undefined;
   return {
     modelUid,
     label: label || modelUid,
@@ -93,6 +135,7 @@ function parseClientModelConfig(buf: Buffer): CatalogModel | null {
     supportsThinking,
     contextWindow,
     maxOutputTokens,
+    price,
   };
 }
 

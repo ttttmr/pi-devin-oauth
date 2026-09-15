@@ -32,7 +32,7 @@ pi install git:github.com/ttttmr/pi-devin-oauth
 
 登录调用 `register.windsurf.com` 的 `RegisterUser`，拿到的 API key 存进 `~/.pi/agent/auth.json`。模型列表来自 `GetCliModelConfigs`，缓存在 `~/.pi/agent/cache/devin-oauth-catalog.json`。聊天走 `GetChatMessage` 流式返回。
 
-模型 ID 不写死，`/model` 显示的就是这个账号实际能跑的，每个 family 一条，thinking 档位决定发哪个变体。
+模型 ID、上下文窗口和单价都来自目录。`/model` 显示的就是这个账号实际能跑的，每个 family 一条，thinking 档位决定发哪个变体。
 
 不要和 `pi-devin`、`pi-devin-local`、`pi-devin-auth` 同时安装，它们注册的是同一个 `devin` provider。
 
