@@ -16,6 +16,9 @@
     "type": "git",
     "url": "git+https://github.com/ttttmr/pi-devin-oauth.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./extensions/index.ts"
@@ -29,7 +32,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc --noEmit"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
