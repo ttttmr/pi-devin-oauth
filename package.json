@@ -1,7 +1,7 @@
 {
   "name": "pi-devin-oauth",
   "version": "0.1.0",
-  "description": "Use Devin Local models in Pi with browser OAuth. No Devin CLI.",
+  "description": "Devin models in Pi without the Devin CLI.",
   "type": "module",
   "keywords": [
     "pi-package",

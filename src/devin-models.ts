@@ -4,6 +4,10 @@ import type { CatalogModel } from "./cli-model-catalog.js";
 
 const THINKING_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
+/** Pi's own defaults, used only if the catalog omits a field (it does not today). */
+const FALLBACK_CONTEXT_WINDOW = 128_000;
+const FALLBACK_MAX_TOKENS = 16_384;
+
 const VARIANT_SUFFIXES = [
   "none-priority",
   "low-priority",
@@ -103,19 +107,26 @@ export function modelsFromCatalog(catalog: CatalogModel[]): ProviderModelConfig[
     }
 
     const mappedLevels = THINKING_ORDER.filter((level) => typeof thinkingLevelMap[level] === "string");
-    const reasoning = mappedLevels.length > 1;
+    // The catalog's feature flag is authoritative. A family that ships several
+    // thinking variants still counts as reasoning when the flag is absent.
+    const supportsThinking = bucket.variants.some((variant) => variant.supportsThinking === true);
+    const reasoning = supportsThinking || mappedLevels.length > 1;
     const defaultUid = preferredDefault(thinkingLevelMap) ?? bucket.variants[0]?.modelUid;
     if (!defaultUid) continue;
     const sample = bucket.variants.find((variant) => variant.modelUid === defaultUid) ?? bucket.variants[0];
 
-    const contextWindow = Math.max(
-      256_000,
-      ...bucket.variants.map((variant) => variant.contextWindow ?? 0),
-    );
-    const maxTokens = Math.max(
-      128_000,
-      ...bucket.variants.map((variant) => variant.maxOutputTokens ?? 0),
-    );
+    // Taken from the catalog's model_info, never widened by a local floor. Pi
+    // stores one window per model, so a family shipping several variants takes
+    // the smallest: understating compacts early, overstating overflows the
+    // request before compaction can run.
+    const contexts = bucket.variants
+      .map((variant) => variant.contextWindow)
+      .filter((n): n is number => typeof n === "number" && n > 0);
+    const outputs = bucket.variants
+      .map((variant) => variant.maxOutputTokens)
+      .filter((n): n is number => typeof n === "number" && n > 0);
+    const contextWindow = contexts.length > 0 ? Math.min(...contexts) : FALLBACK_CONTEXT_WINDOW;
+    const maxTokens = outputs.length > 0 ? Math.min(...outputs) : FALLBACK_MAX_TOKENS;
     const supportsImages = bucket.variants.some((variant) => variant.supportsImages);
 
     models.push({

@@ -29,13 +29,20 @@ function parseModelFeatures(buf: Buffer): { supportsImages?: boolean; supportsTh
 function parseModelInfo(buf: Buffer): {
   supportsImages?: boolean;
   supportsThinking?: boolean;
+  contextWindow?: number;
   maxOutputTokens?: number;
 } {
   let supportsImages: boolean | undefined;
   let supportsThinking: boolean | undefined;
+  let contextWindow: number | undefined;
   let maxOutputTokens: number | undefined;
   for (const field of iterFields(buf)) {
-    if (field.num === 6 && field.wire === 2 && Buffer.isBuffer(field.value)) {
+    if (field.num === 4 && field.wire === 0) {
+      // model_info.max_context_tokens: the only field the catalog fills in for
+      // every entry. ClientModelConfig field 18 mirrors it for a few models.
+      const n = Number(field.value);
+      if (n > 0) contextWindow = n;
+    } else if (field.num === 6 && field.wire === 2 && Buffer.isBuffer(field.value)) {
       const features = parseModelFeatures(field.value);
       supportsImages = features.supportsImages;
       supportsThinking = features.supportsThinking;
@@ -44,7 +51,7 @@ function parseModelInfo(buf: Buffer): {
       if (n > 0) maxOutputTokens = n;
     }
   }
-  return { supportsImages, supportsThinking, maxOutputTokens };
+  return { supportsImages, supportsThinking, contextWindow, maxOutputTokens };
 }
 
 function parseClientModelConfig(buf: Buffer): CatalogModel | null {
@@ -72,6 +79,7 @@ function parseClientModelConfig(buf: Buffer): CatalogModel | null {
       const info = parseModelInfo(field.value);
       if (info.supportsImages !== undefined) supportsImages = info.supportsImages;
       supportsThinking = info.supportsThinking;
+      if (info.contextWindow !== undefined) contextWindow = info.contextWindow;
       maxOutputTokens = info.maxOutputTokens;
     }
   }

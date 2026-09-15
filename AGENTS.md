@@ -1,6 +1,6 @@
 # AGENTS.md: pi-devin-oauth
 
-Pi package that registers the `devin` provider. Login is browser OAuth (Windsurf RegisterUser) or a pasted API key. No Devin CLI.
+Pi package that registers the `devin` provider. Login is browser sign-in (Windsurf RegisterUser) or a pasted API key. No Devin CLI.
 
 ## Layout
 
@@ -23,6 +23,8 @@ src/thinking-signature.ts
 - Do not spawn `devin`, do not read `credentials.toml`, do not scrape Devin Desktop.
 - Store the API key in Pi `auth.json` via `oauth.login`.
 - Model IDs come from the live catalog RPC at factory load (and after login), cached under ~/.pi/agent/cache/. Do not add a /devin-refresh command.
+- `contextWindow` and `maxTokens` come from `model_info` fields 4 and 13. Never widen them with a local floor: an overstated window overflows before Pi can compact.
+- `reasoning` follows the catalog's `features.supports_thinking` flag, not the number of thinking variants.
 - Chat Metadata stays `devin-desktop`. Catalog RPCs must use `windsurf` or the list comes back empty.
 - One Pi model per family; thinking levels via Pi. Unsupported levels are `null`.
 - Do not install alongside other packages that register `devin`.
