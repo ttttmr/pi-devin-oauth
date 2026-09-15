@@ -1,0 +1,47 @@
+{
+  "name": "pi-devin-oauth",
+  "version": "0.1.0",
+  "description": "Use Devin Local models in Pi with browser OAuth. No Devin CLI.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "devin",
+    "cognition",
+    "custom-provider"
+  ],
+  "author": "ttttmr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ttttmr/pi-devin-oauth.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "README.md",
+    "README_zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
