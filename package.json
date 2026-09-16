@@ -35,12 +35,13 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "tsc --noEmit"
   },
+  "dependencies": {
+    "@earendil-works/pi-ai": "*"
+  },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@types/node": "^24.13.3",
     "typescript": "^5.9.2"
