@@ -10,6 +10,7 @@ import {
   calculateCost,
   createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
+import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
 import { mapContextToChat, type ChatHistoryItem, type ContentPart, type ToolDef } from "./chat-context-map.js";
 import { getCachedUserJwt } from "./mint-user-jwt.js";
 import { buildMetadata } from "./client-metadata.js";
@@ -96,10 +97,10 @@ function encodeChatMessagePrompt(
   return Buffer.concat(parts);
 }
 
-function encodeCompletionConfiguration(maxOutputTokens?: number): Buffer {
+function encodeCompletionConfiguration(maxOutputTokens: number): Buffer {
   return Buffer.concat([
     encodeVarintField(1, 1),
-    encodeVarintField(2, maxOutputTokens ?? 128_000),
+    encodeVarintField(2, maxOutputTokens),
     encodeVarintField(3, 400),
     encodeFixed64Field(5, 1.0),
     encodeVarintField(7, 40),
@@ -136,7 +137,7 @@ function buildGetChatMessageRequest(args: {
   sessionId: string;
   requestId: bigint;
   triggerId: string;
-  maxOutputTokens?: number;
+  maxOutputTokens: number;
 }): Buffer {
   const metadata = buildMetadata({
     apiKey: args.apiKey,
@@ -282,7 +283,7 @@ async function* streamChatEvents(args: {
   systemPrompt?: string;
   messages: ChatHistoryItem[];
   tools?: ToolDef[];
-  maxOutputTokens?: number;
+  maxOutputTokens: number;
   signal?: AbortSignal;
 }): AsyncGenerator<CloudChatEvent> {
   const host = args.host.replace(/\/$/, "");
@@ -489,6 +490,12 @@ export function streamDevin(
       const host = (options?.env?.DEVIN_API_SERVER_URL || "https://server.codeium.com").replace(/\/$/, "");
       const modelUid = resolveModelUid(model.id, model.thinkingLevelMap, options?.reasoning);
       const mapped = mapContextToChat(context);
+      // Devin rejects a request whose prompt plus output reservation exceeds the
+      // model's context window, and answers with an opaque "an internal error
+      // occurred (trace ID ...)" that repeats on every retry. Pi only budgets for
+      // its own compaction reserve, so the reservation is clamped against the
+      // prompt being sent, the same way Pi's own adapters do it.
+      const maxOutputTokens = clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens);
       stream.push({ type: "start", partial: output });
 
       for await (const event of streamChatEvents({
@@ -498,7 +505,7 @@ export function streamDevin(
         systemPrompt: mapped.systemPrompt,
         messages: mapped.messages,
         tools: mapped.tools.length > 0 ? mapped.tools : undefined,
-        maxOutputTokens: options?.maxTokens,
+        maxOutputTokens,
         signal: options?.signal,
       })) {
         if (event.kind === "text") {
