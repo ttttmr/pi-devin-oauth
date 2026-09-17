@@ -6,6 +6,16 @@ import {
   readStoredDevinApiKey,
   writeDevinCatalogCache,
 } from "../src/devin-catalog-cache.js";
+
+/** Refresh the live catalog at most once per TTL, matching pi's own catalog refresh throttle. */
+const CATALOG_TTL_MS = 4 * 60 * 60 * 1000;
+
+function shouldRefreshLiveCatalog(): boolean {
+  if (process.env.PI_OFFLINE === "1" || process.env.PI_OFFLINE === "true") return false;
+  const cached = readDevinCatalogCache();
+  if (!cached) return true;
+  return Date.now() - cached.fetchedAt > CATALOG_TTL_MS;
+}
 import { modelsFromCatalog } from "../src/devin-models.js";
 import { streamDevin } from "../src/stream-devin.js";
 import { loginDevinWithWindsurf } from "../src/windsurf-login.js";
@@ -59,17 +69,17 @@ async function loadLiveCatalog(pi: ExtensionAPI, apiKey: string): Promise<Catalo
   return catalog;
 }
 
-export default async function (pi: ExtensionAPI): Promise<void> {
+export default function (pi: ExtensionAPI): void {
   _pi = pi;
   registerDevinProvider(pi, modelsFromCache());
 
+  // Register cached models synchronously so startup never blocks on the network;
+  // refresh the live catalog in the background when the cache is stale.
   const apiKey = readStoredDevinApiKey();
-  if (apiKey) {
-    try {
-      await loadLiveCatalog(pi, apiKey);
-    } catch {
-      // cached models already registered
-    }
+  if (apiKey && shouldRefreshLiveCatalog()) {
+    void loadLiveCatalog(pi, apiKey).catch(() => {
+      // keep cached models
+    });
   }
 
   pi.on("session_shutdown", async () => {
