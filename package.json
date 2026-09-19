@@ -1,6 +1,6 @@
 {
   "name": "pi-devin-oauth",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Devin models in Pi without the Devin CLI.",
   "type": "module",
   "keywords": [
@@ -38,6 +38,7 @@
     "prepublishOnly": "npm run build && tsc --noEmit"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
