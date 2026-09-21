@@ -34,6 +34,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "test": "node --test src/chat-context-map.test.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && tsc --noEmit"
   },

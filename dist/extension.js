@@ -533,6 +533,151 @@ import {
   createAssistantMessageEventStream
 } from "@earendil-works/pi-ai";
 
+// src/thinking-signature.ts
+var TYPE_SEPARATOR = "";
+function signatureTypeOf(signature) {
+  return signature.startsWith("sealed.") ? "sealed" : "non-sealed";
+}
+function packThinkingSignature(signature, signatureType) {
+  if (!signatureType || signatureType === signatureTypeOf(signature)) return signature;
+  return `${signatureType}${TYPE_SEPARATOR}${signature}`;
+}
+function unpackThinkingSignature(value) {
+  if (!value) return {};
+  const index = value.indexOf(TYPE_SEPARATOR);
+  if (index === -1) return { signature: value, signatureType: signatureTypeOf(value) };
+  return { signatureType: value.slice(0, index), signature: value.slice(index + 1) };
+}
+
+// src/chat-context-map.ts
+function isRuntimeSystemMessage(message) {
+  return Boolean(message && typeof message === "object" && message.role === "system");
+}
+function textFromRuntimeContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.filter((part) => {
+    return Boolean(
+      part && typeof part === "object" && part.type === "text" && typeof part.text === "string"
+    );
+  }).map((part) => part.text).join("\n");
+}
+function runtimeSystemPrompt(messages) {
+  if (messages.length === 0) return void 0;
+  const contentParts = [];
+  const sections = /* @__PURE__ */ new Map();
+  for (const message of messages) {
+    const content = textFromRuntimeContent(message.content);
+    if (content) contentParts.push(content);
+    for (const [name, value] of Object.entries(message.sections ?? {})) {
+      if (value === null) sections.delete(name);
+      else sections.set(name, value);
+    }
+  }
+  const parts = [...contentParts, ...sections.values()].filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join("\n\n") : void 0;
+}
+function runtimeSystemTools(messages, fallback) {
+  const tools = /* @__PURE__ */ new Map();
+  let hasToolDeclarations = false;
+  for (const message of messages) {
+    for (const tool of message.toolsRemoved ?? []) {
+      hasToolDeclarations = true;
+      tools.delete(tool.name);
+    }
+    for (const tool of message.toolsAdded ?? []) {
+      hasToolDeclarations = true;
+      tools.set(tool.name, tool);
+    }
+  }
+  return hasToolDeclarations ? [...tools.values()] : fallback;
+}
+function normalizeContextForDevin(context) {
+  const runtimeMessages = context.messages;
+  const systemMessages = runtimeMessages.filter(isRuntimeSystemMessage);
+  const systemPrompt = runtimeSystemPrompt(systemMessages);
+  const existingSystemPrompt = context.systemPrompt;
+  const combinedSystemPrompt = [existingSystemPrompt, systemPrompt].filter((part, index, parts) => Boolean(part) && parts.indexOf(part) === index).join("\n\n");
+  const messages = runtimeMessages.filter((message) => !isRuntimeSystemMessage(message));
+  const tools = runtimeSystemTools(systemMessages, context.tools);
+  return {
+    ...context,
+    ...combinedSystemPrompt ? { systemPrompt: combinedSystemPrompt } : { systemPrompt: void 0 },
+    ...tools ? { tools } : {},
+    messages
+  };
+}
+function userContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "text") parts.push({ type: "text", text: part.text });
+    if (part.type === "image") {
+      parts.push({ type: "image", mimeType: part.mimeType, base64Data: part.data });
+    }
+  }
+  return parts;
+}
+function mapContextToChat(context) {
+  const normalizedContext = normalizeContextForDevin(context);
+  const messages = [];
+  for (const message of normalizedContext.messages) {
+    if (message.role === "user") {
+      messages.push({ role: "user", content: userContent(message.content) });
+      continue;
+    }
+    if (message.role === "assistant") {
+      const texts = [];
+      const toolCalls = [];
+      let thinking;
+      for (const part of message.content) {
+        if (part.type === "text") texts.push(part.text);
+        if (part.type === "toolCall") {
+          toolCalls.push({
+            id: part.id,
+            name: part.name,
+            arguments: JSON.stringify(part.arguments ?? {})
+          });
+        }
+        if (part.type === "thinking") {
+          const decoded = unpackThinkingSignature(part.thinkingSignature);
+          if (part.thinking && decoded.signature) {
+            thinking = {
+              text: part.thinking,
+              signature: decoded.signature,
+              signatureType: decoded.signatureType,
+              redacted: part.redacted
+            };
+          }
+        }
+      }
+      messages.push({
+        role: "assistant",
+        content: texts.join("\n"),
+        tool_calls: toolCalls.length > 0 ? toolCalls : void 0,
+        thinking
+      });
+      continue;
+    }
+    if (message.role === "toolResult") {
+      const text = typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      messages.push({
+        role: "tool",
+        content: text,
+        tool_call_id: message.toolCallId
+      });
+    }
+  }
+  const tools = (normalizedContext.tools ?? []).map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters
+  }));
+  return { systemPrompt: normalizedContext.systemPrompt || void 0, messages, tools };
+}
+
 // node_modules/@earendil-works/pi-ai/dist/utils/estimate.js
 var CHARS_PER_TOKEN = 4;
 var ESTIMATED_IMAGE_CHARS = 4800;
@@ -649,91 +794,14 @@ function clampMaxTokensToContext(model, context, maxTokens) {
   return Math.min(maxTokens, Math.max(MIN_MAX_TOKENS, available));
 }
 
-// src/thinking-signature.ts
-var TYPE_SEPARATOR = "";
-function signatureTypeOf(signature) {
-  return signature.startsWith("sealed.") ? "sealed" : "non-sealed";
-}
-function packThinkingSignature(signature, signatureType) {
-  if (!signatureType || signatureType === signatureTypeOf(signature)) return signature;
-  return `${signatureType}${TYPE_SEPARATOR}${signature}`;
-}
-function unpackThinkingSignature(value) {
-  if (!value) return {};
-  const index = value.indexOf(TYPE_SEPARATOR);
-  if (index === -1) return { signature: value, signatureType: signatureTypeOf(value) };
-  return { signatureType: value.slice(0, index), signature: value.slice(index + 1) };
-}
-
-// src/chat-context-map.ts
-function userContent(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts = [];
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    if (part.type === "text") parts.push({ type: "text", text: part.text });
-    if (part.type === "image") {
-      parts.push({ type: "image", mimeType: part.mimeType, base64Data: part.data });
-    }
-  }
-  return parts;
-}
-function mapContextToChat(context) {
-  const messages = [];
-  for (const message of context.messages) {
-    if (message.role === "user") {
-      messages.push({ role: "user", content: userContent(message.content) });
-      continue;
-    }
-    if (message.role === "assistant") {
-      const texts = [];
-      const toolCalls = [];
-      let thinking;
-      for (const part of message.content) {
-        if (part.type === "text") texts.push(part.text);
-        if (part.type === "toolCall") {
-          toolCalls.push({
-            id: part.id,
-            name: part.name,
-            arguments: JSON.stringify(part.arguments ?? {})
-          });
-        }
-        if (part.type === "thinking") {
-          const decoded = unpackThinkingSignature(part.thinkingSignature);
-          if (part.thinking && decoded.signature) {
-            thinking = {
-              text: part.thinking,
-              signature: decoded.signature,
-              signatureType: decoded.signatureType,
-              redacted: part.redacted
-            };
-          }
-        }
-      }
-      messages.push({
-        role: "assistant",
-        content: texts.join("\n"),
-        tool_calls: toolCalls.length > 0 ? toolCalls : void 0,
-        thinking
-      });
-      continue;
-    }
-    if (message.role === "toolResult") {
-      const text = typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-      messages.push({
-        role: "tool",
-        content: text,
-        tool_call_id: message.toolCallId
-      });
-    }
-  }
-  const tools = (context.tools ?? []).map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters
-  }));
-  return { systemPrompt: context.systemPrompt || void 0, messages, tools };
+// src/context-budget.ts
+function clampMaxTokensForDevin(model, context, maxTokens) {
+  const normalizedContext = normalizeContextForDevin(context);
+  return clampMaxTokensToContext(
+    model,
+    normalizedContext,
+    maxTokens
+  );
 }
 
 // src/stream-devin.ts
@@ -1117,7 +1185,7 @@ function streamDevin(model, context, options) {
       const host = (options?.env?.DEVIN_API_SERVER_URL || "https://server.codeium.com").replace(/\/$/, "");
       const modelUid = resolveModelUid(model.id, model.thinkingLevelMap, options?.reasoning);
       const mapped = mapContextToChat(context);
-      const maxOutputTokens = clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens);
+      const maxOutputTokens = clampMaxTokensForDevin(model, context, options?.maxTokens ?? model.maxTokens);
       stream.push({ type: "start", partial: output });
       for await (const event of streamChatEvents({
         apiKey,

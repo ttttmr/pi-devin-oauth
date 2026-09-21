@@ -10,8 +10,8 @@ import {
   calculateCost,
   createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
 import { mapContextToChat, type ChatHistoryItem, type ContentPart, type ToolDef } from "./chat-context-map.js";
+import { clampMaxTokensForDevin } from "./context-budget.js";
 import { getCachedUserJwt } from "./mint-user-jwt.js";
 import { buildMetadata } from "./client-metadata.js";
 import { resolveModelUid } from "./devin-models.js";
@@ -495,7 +495,7 @@ export function streamDevin(
       // occurred (trace ID ...)" that repeats on every retry. Pi only budgets for
       // its own compaction reserve, so the reservation is clamped against the
       // prompt being sent, the same way Pi's own adapters do it.
-      const maxOutputTokens = clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens);
+      const maxOutputTokens = clampMaxTokensForDevin(model, context, options?.maxTokens ?? model.maxTokens);
       stream.push({ type: "start", partial: output });
 
       for await (const event of streamChatEvents({

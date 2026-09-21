@@ -30,6 +30,88 @@ export interface MappedChat {
   tools: ToolDef[];
 }
 
+type RuntimeSystemMessage = {
+  role: "system";
+  content: unknown;
+  sections?: Record<string, string | null>;
+  toolsAdded?: Tool[];
+  toolsRemoved?: Array<{ name: string }>;
+};
+
+function isRuntimeSystemMessage(message: unknown): message is RuntimeSystemMessage {
+  return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "system");
+}
+
+function textFromRuntimeContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: "text"; text: string } => {
+      return Boolean(
+        part &&
+          typeof part === "object" &&
+          (part as { type?: unknown }).type === "text" &&
+          typeof (part as { text?: unknown }).text === "string",
+      );
+    })
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function runtimeSystemPrompt(messages: RuntimeSystemMessage[]): string | undefined {
+  if (messages.length === 0) return undefined;
+
+  const contentParts: string[] = [];
+  const sections = new Map<string, string>();
+  for (const message of messages) {
+    const content = textFromRuntimeContent(message.content);
+    if (content) contentParts.push(content);
+    for (const [name, value] of Object.entries(message.sections ?? {})) {
+      if (value === null) sections.delete(name);
+      else sections.set(name, value);
+    }
+  }
+
+  const parts = [...contentParts, ...sections.values()].filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+function runtimeSystemTools(messages: RuntimeSystemMessage[], fallback?: Tool[]): Tool[] | undefined {
+  const tools = new Map<string, Tool>();
+  let hasToolDeclarations = false;
+  for (const message of messages) {
+    for (const tool of message.toolsRemoved ?? []) {
+      hasToolDeclarations = true;
+      tools.delete(tool.name);
+    }
+    for (const tool of message.toolsAdded ?? []) {
+      hasToolDeclarations = true;
+      tools.set(tool.name, tool);
+    }
+  }
+  return hasToolDeclarations ? [...tools.values()] : fallback;
+}
+
+/** Remove runtime system messages and project their text into Devin's system slot. */
+export function normalizeContextForDevin(context: Context): Context {
+  const runtimeMessages = context.messages as unknown as Array<unknown>;
+  const systemMessages = runtimeMessages.filter(isRuntimeSystemMessage);
+  const systemPrompt = runtimeSystemPrompt(systemMessages);
+  const existingSystemPrompt = context.systemPrompt;
+  const combinedSystemPrompt = [existingSystemPrompt, systemPrompt]
+    .filter((part, index, parts): part is string => Boolean(part) && parts.indexOf(part) === index)
+    .join("\n\n");
+  const messages = runtimeMessages.filter((message) => !isRuntimeSystemMessage(message)) as Message[];
+  const tools = runtimeSystemTools(systemMessages, context.tools);
+
+  return {
+    ...context,
+    ...(combinedSystemPrompt ? { systemPrompt: combinedSystemPrompt } : { systemPrompt: undefined }),
+    ...(tools ? { tools } : {}),
+    messages,
+  };
+}
+
 function userContent(content: Message["content"]): string | ContentPart[] {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -46,9 +128,10 @@ function userContent(content: Message["content"]): string | ContentPart[] {
 
 /** Map a Pi Context onto Cognition chat history + tools. */
 export function mapContextToChat(context: Context): MappedChat {
+  const normalizedContext = normalizeContextForDevin(context);
   const messages: ChatHistoryItem[] = [];
 
-  for (const message of context.messages) {
+  for (const message of normalizedContext.messages) {
     if (message.role === "user") {
       messages.push({ role: "user", content: userContent(message.content) });
       continue;
@@ -102,11 +185,11 @@ export function mapContextToChat(context: Context): MappedChat {
     }
   }
 
-  const tools: ToolDef[] = (context.tools ?? []).map((tool: Tool) => ({
+  const tools: ToolDef[] = (normalizedContext.tools ?? []).map((tool: Tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
   }));
 
-  return { systemPrompt: context.systemPrompt || undefined, messages, tools };
+  return { systemPrompt: normalizedContext.systemPrompt || undefined, messages, tools };
 }
